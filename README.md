@@ -1,3 +1,9 @@
+# Roadmap
+1. Basic functionality (C++ in text box, execute)
+2. File system (upload multiple files, compile and link)
+3. Stanford library (find Stanford library source, add in with file system)
+4. Bonus! Debugging functionality (compile GDB? stepping? handling exceptions?)
+
 # Getting Started with Create React App
 
 This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
