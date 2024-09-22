@@ -1,15 +1,16 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { WASIFS, WASIWorkerHost, WASIWorkerHostKilledError, WASI } from '@runno/wasi';
 import { headlessRunCode, headlessRunFS } from "@runno/runtime";
 import { ChakraProvider, Box, VStack, Textarea, Flex, Button, Text } from '@chakra-ui/react';
 import { extractTarGz, fetchTarredFS } from './tarball';
-
+import { useXTerm } from 'react-xtermjs';
 
 const IDELayout = () => {
         const DEFAULT_CODE = `
 #include <iostream>
 int main() {
-  std::cout << "Hello, world!" << std::endl;
+  std::string name; std::cin >> name;
+  std::cout << "Hello " << name << std::endl;
   return 0;
 }
 `;
@@ -21,6 +22,18 @@ int main() {
     
     // Main file to try and compile
     const entryPath = "/main.cpp";
+
+    const { instance, ref } = useXTerm();
+    instance?.writeln('Hello from react-xtermjs!');
+
+    const blockStdin = async () => {
+        console.log("Collecting stdin...")
+        instance?.writeln('Waiting for stdin...: ');
+        let stdin = "";
+        instance?.onData(data => {console.log(data); stdin += data});
+
+        return stdin;
+    }
 
     let programFS = {
         "/main.cpp": {
@@ -79,7 +92,7 @@ int main() {
         const result = await WASI.start(fetch(command.binaryURL), {
             args: [command.binaryName, ...command.args],
             env: command.env,
-            stdout: (out) => console.log("stdout:", out),
+            stdout: (out) => instance?.write(out),
             stderr: (err) => console.log("stderr:", err),
             stdin: () => prompt("stdin:"),
             fs: programFS
@@ -117,7 +130,7 @@ int main() {
         const result = await WASI.start(fetch(command.binaryURL), {
             args: [command.binaryName, ...command.args],
             env: command.env,
-            stdout: (out) => console.log("stdout:", out),
+            stdout: (out) => instance?.write(out),
             stderr: (err) => console.log("stderr", err),
             stdin: () => prompt("stdin:"),
             fs: programFS,
@@ -145,9 +158,9 @@ int main() {
             args: [command.binaryName],
             env: {},
             fs: programFS,
-            stdout: (out) => console.log("stdout", out),
+            stdout: (out) => instance?.write(out),
             stderr: (err) => console.log("stderr", err),
-            stdin: () => prompt("stdin")
+            stdin: () => blockStdin()
         });
 
         console.log("Finished execution!", result);
@@ -190,8 +203,8 @@ int main() {
                         </Box>
 
                         {/* Terminal: Bottom 1/8 */}
-                        <Box flex="1" bg="black" color="white" p={2} borderRadius="md" fontFamily="monospace">
-                            {/* <Text fontSize="md">{terminalOut}</Text> */}
+                        <Box flex="1">
+                            <Box ref={ref} />
                         </Box>
                     </Flex>
                 </Box>
