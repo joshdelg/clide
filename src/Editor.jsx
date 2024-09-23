@@ -31,6 +31,9 @@ int main() {
 
     const addFile = () => {
         const filename = prompt("File Name: ");
+        
+        if(filename === "") return;
+        
         setFiles({
             ...files,
             [filename]: {
@@ -118,18 +121,26 @@ int main() {
         programFS = {...programFS, ...extractedFS};
 
         console.log("Compiling");
+
+        let stderr = "";
         const result = await WASI.start(fetch(command.binaryURL), {
             args: [command.binaryName, ...command.args],
             env: command.env,
             stdout: (out) => instance?.write(out),
-            stderr: (err) => console.log("stderr:", err),
+            stderr: (err) => stderr += err,
             stdin: () => prompt("stdin:"),
             fs: programFS
         });
 
         programFS = result.fs;
 
-        console.log("Finished compilation", programFS);
+        console.log("Finished compilation", result);
+
+        if(result.exitCode != 0) {
+            console.log("Finished with error :(");
+            instance?.write(stderr);
+            throw Error("Compilation failed.");
+        }
     };
 
     const link = async () => {
@@ -156,11 +167,12 @@ int main() {
             env: {},
         };
 
+        let stderr = "";
         const result = await WASI.start(fetch(command.binaryURL), {
             args: [command.binaryName, ...command.args],
             env: command.env,
             stdout: (out) => instance?.write(out),
-            stderr: (err) => console.log("stderr", err),
+            stderr: (err) => stderr += err,
             stdin: () => prompt("stdin:"),
             fs: programFS,
         });
@@ -168,6 +180,12 @@ int main() {
         programFS = result.fs;
         
         console.log("Finished linking!", programFS);
+
+        if(result.exitCode != 0) {
+            console.log("Finished with error :(");
+            instance?.write(stderr);
+            throw Error("Linking failed.");
+        }
     };
 
     const run = async () => {
@@ -183,24 +201,36 @@ int main() {
         const blob = new Blob([file.content], {type: "application/wasm"});
         const binaryPath =  URL.createObjectURL(blob);
         
-        let stdout = "";
+        let stderr = "";
         
         const result = await WASI.start(fetch(binaryPath), {
             args: [command.binaryName],
             env: {},
             fs: programFS,
-            stdout: (out) => {instance?.write(out); stdout += out},
-            stderr: (err) => instance?.write(err),
+            stdout: (out) => instance?.write(out),
+            stderr: (err) => stderr += err,
             stdin: () => prompt("stdin:")
         });
 
-        console.log("Finished execution!", result, stdout);
+        console.log("Finished execution!", result);
+
+        if(result.exitCode != 0) {
+            console.log("Finished with error :(");
+            instance?.write(stderr);
+            throw Error("Execution failed.");
+        }
     };
 
     const compile_link_run = async () => {
-        await compile();
-        await link();
-        await run();
+        try {
+            await compile();
+            await link();
+            await run();
+        } catch (e) {
+            console.log("Process failed", e);
+        }
+
+        instance?.writeln("");
     };
 
     return (
