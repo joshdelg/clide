@@ -6,16 +6,51 @@ import { extractTarGz, fetchTarredFS } from './tarball';
 import { useXTerm } from 'react-xtermjs';
 
 const IDELayout = () => {
-        const DEFAULT_CODE = `
-#include <iostream>
+        const DEFAULT_CODE = `#include <iostream>
+#include <string>
+#include <fstream>
 int main() {
-  std::string name; std::cin >> name;
-  std::cout << "Hello " << name << std::endl;
-  return 0;
+    std::ifstream myfile("test.txt");
+    std::string name;
+
+    myfile >> name;
+
+    std::cout << "Hello " << name << std::endl;
+    return 0;
 }
 `;
 
-    const [code, setCode] = useState(DEFAULT_CODE);
+    const [files, setFiles] = useState({
+        "main.cpp": {
+            name: "main.cpp",
+            content: DEFAULT_CODE      
+        }
+    })
+
+    const [selectedFile, setSelectedFile] = useState("main.cpp");
+
+    const addFile = () => {
+        const filename = prompt("File Name: ");
+        setFiles({
+            ...files,
+            [filename]: {
+                name: filename,
+                content: "Hello, world!"
+            }
+        });
+
+        setSelectedFile(filename);
+    }
+
+    const updateFile = (filename, fileContent) => {
+        setFiles({
+            ...files,
+            [filename]: {
+                name: filename,
+                content: fileContent
+            }
+        });
+    }
 
     // For binaries/tars hosted in the public folder
     const baseURL = process.env.PUBLIC_URL;
@@ -24,32 +59,26 @@ int main() {
     const entryPath = "/main.cpp";
 
     const { instance, ref } = useXTerm();
-    instance?.writeln('Hello from react-xtermjs!');
 
-    const blockStdin = async () => {
-        console.log("Collecting stdin...")
-        instance?.writeln('Waiting for stdin...: ');
-        let stdin = "";
-        instance?.onData(data => {console.log(data); stdin += data});
-
-        return stdin;
-    }
-
-    let programFS = {
-        "/main.cpp": {
-            path: "/main.cpp",
-            timestamps: {
-                access: new Date(),
-                change: new Date(),
-                modification: new Date()
-            },
-            mode: "string",
-            content: code
-        }
-    };
+    let programFS = {};
 
     const compile = async () => {
         console.log("COMPILING...");
+
+        // Clone UI files into WASM FS
+        Object.keys(files).forEach(file => {
+            const withSlash = "/" + file;
+            programFS[withSlash] = {
+                path: withSlash,
+                timestamps: {
+                    access: new Date(),
+                    change: new Date(),
+                    modification: new Date()
+                },
+                mode: "string",
+                content: files[file].content
+            };
+        });
 
         const command = {
             binaryURL: `${baseURL}/clang.wasm`,
@@ -100,7 +129,7 @@ int main() {
 
         programFS = result.fs;
 
-        console.log("Finished compilation");
+        console.log("Finished compilation", programFS);
     };
 
     const link = async () => {
@@ -153,17 +182,19 @@ int main() {
 
         const blob = new Blob([file.content], {type: "application/wasm"});
         const binaryPath =  URL.createObjectURL(blob);
-
+        
+        let stdout = "";
+        
         const result = await WASI.start(fetch(binaryPath), {
             args: [command.binaryName],
             env: {},
             fs: programFS,
-            stdout: (out) => instance?.write(out),
-            stderr: (err) => console.log("stderr", err),
-            stdin: () => blockStdin()
+            stdout: (out) => {instance?.write(out); stdout += out},
+            stderr: (err) => instance?.write(err),
+            stdin: () => prompt("stdin:")
         });
 
-        console.log("Finished execution!", result);
+        console.log("Finished execution!", result, stdout);
     };
 
     const compile_link_run = async () => {
@@ -178,9 +209,12 @@ int main() {
                 {/* File Pane: Left 1/4 */}
                 <Box width="25%" bg="gray.100" p={4}>
                     <VStack spacing={4}>
-                        <Box p={2} bg="gray.200" borderRadius="md">File 1</Box>
-                        <Box p={2} bg="gray.200" borderRadius="md">File 2</Box>
-                        <Box p={2} bg="gray.200" borderRadius="md">File 3</Box>
+                        {
+                            Object.keys(files).map(filekey => (
+                                <Button p={2} bg="gray.200" borderRadius="md" onClick={() => setSelectedFile(filekey)} disabled={selectedFile === filekey}>{filekey}</Button>
+                            ))
+                        }
+                        <Button p={2} bg="gray.200" borderRadius="md" onClick={() => addFile()}>Add new file...</Button>
                     </VStack>
                 </Box>
 
@@ -192,14 +226,16 @@ int main() {
                         </Flex>
                         {/* Code Editor: Top 7/8 */}
                         <Box flex="7" bg="white" border="1px solid" borderColor="gray.200" mb={4}>
-                            <Textarea
+                            {
+                                selectedFile in files && <Textarea
                                 placeholder="Write your C++ code here..."
                                 height="100%"
                                 resize="none"
                                 fontFamily="monospace"
-                                value={code}
-                                onChange={(e) => setCode(e.target.value)}
-                            />
+                                value={files[selectedFile].content}
+                                onChange={(e) => updateFile(selectedFile, e.target.value)}
+                                />
+                            }
                         </Box>
 
                         {/* Terminal: Bottom 1/8 */}
